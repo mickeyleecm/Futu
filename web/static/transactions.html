@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Futu Transactions</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/transactions.css" />
+</head>
+<body>
+  <header class="top-bar">
+    <div class="brand">
+      Transactions <span class="muted">statement · P&amp;L</span>
+    </div>
+    <nav class="nav-links">
+      <a href="/">Option Chain</a>
+      <a href="/transactions" class="active">Transactions</a>
+    </nav>
+    <div id="status" class="status">Connecting…</div>
+  </header>
+
+  <section class="tx-panel">
+    <div class="upload-box">
+      <h2>Upload monthly / daily statement (PDF)</h2>
+      <p class="muted">Futu / Futubull / moomoo PDF. Trades are parsed and saved to PostgreSQL.</p>
+      <form id="uploadForm">
+        <input id="pdfFile" type="file" accept="application/pdf,.pdf" required />
+        <button type="submit">Upload &amp; Import</button>
+      </form>
+      <pre id="uploadResult" class="result-box muted"></pre>
+    </div>
+
+    <div class="filter-box">
+      <h2>View transactions</h2>
+      <div class="filters">
+        <label>From <input id="dateFrom" type="date" /></label>
+        <label>To <input id="dateTo" type="date" /></label>
+        <label>
+          Product
+          <select id="productType">
+            <option value="">All</option>
+            <option value="STOCK">Stock</option>
+            <option value="ETF">ETF</option>
+            <option value="WARRANT">Warrant</option>
+            <option value="OPTION">Option</option>
+            <option value="CASH">Cash</option>
+            <option value="FUTURE">Future</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </label>
+        <label>Code <input id="codeFilter" type="text" placeholder="e.g. 00700 or HKB" /></label>
+        <button id="btnSearch" type="button">Search</button>
+        <button id="btnShowAll" type="button" class="secondary">Show all</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="pnl-section">
+    <h2>P&amp;L by product type</h2>
+    <p class="muted pair-hint">
+      Option / warrant realized P&amp;L counts <strong>closed pairs only</strong>
+      (開倉 still open is excluded). Stock / cash use period cash-flow.
+    </p>
+    <table id="pnlTable">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>CCY</th>
+          <th>Trades</th>
+          <th>Buy qty</th>
+          <th>Sell qty</th>
+          <th>Buy amount</th>
+          <th>Sell amount</th>
+          <th>Fees</th>
+          <th>Realized P&amp;L</th>
+          <th>Basis</th>
+        </tr>
+      </thead>
+      <tbody id="pnlBody"></tbody>
+    </table>
+  </section>
+
+  <section class="pair-section">
+    <h2>Option &amp; warrant pairs</h2>
+    <p class="muted pair-hint">
+      Uses 開倉/平倉 remarks. Fully matched pairs need the open trade in the DB
+      (upload prior months if Aug 平倉 has no open). P&amp;L = (sell − fees) − (buy + fees).
+      Rows marked <em>prior?</em> are 平倉 without a matching 開倉 yet — P&amp;L shown as —.
+    </p>
+    <div id="pairStats" class="pair-stats">
+      <div class="stat-card">
+        <div class="stat-label">Closed pairs</div>
+        <div id="statClosedCount" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Fully matched (open+close)</div>
+        <div id="statMatchedCount" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Closed P&amp;L (HKD)</div>
+        <div id="statClosedPnlHkd" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Closed P&amp;L (USD)</div>
+        <div id="statClosedPnlUsd" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Closed P&amp;L (HKD base)</div>
+        <div id="statClosedPnlHkdBase" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Option closed (HKD / USD)</div>
+        <div id="statOptionPnl" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Warrant closed (HKD / USD)</div>
+        <div id="statWarrantPnl" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Still open</div>
+        <div id="statOpenCount" class="stat-value">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Win rate (closed)</div>
+        <div id="statWinRate" class="stat-value">—</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="pairTable">
+        <thead>
+          <tr>
+            <th>Sell date</th>
+            <th>Buy date</th>
+            <th>Close date</th>
+            <th>Side</th>
+            <th>Code</th>
+            <th>Name / Expiry</th>
+            <th>Expiry</th>
+            <th>Type</th>
+            <th>Dir</th>
+            <th>Leg</th>
+            <th>Qty</th>
+            <th>Price</th>
+            <th>Amount</th>
+            <th>Fees</th>
+            <th>Realized P&amp;L</th>
+            <th>CCY</th>
+          </tr>
+        </thead>
+        <tbody id="pairBody"></tbody>
+        <tfoot>
+          <tr id="pairTotalsRow" class="pair-totals">
+            <td colspan="14">Closed pairs total</td>
+            <td id="pairTotalsPnl">—</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <h3 class="open-lots-title">Still open (unmatched)</h3>
+    <div class="table-wrap">
+      <table id="openTable">
+        <thead>
+          <tr>
+            <th>Open</th>
+            <th>Code</th>
+            <th>Name / Expiry</th>
+            <th>Expiry</th>
+            <th>Type</th>
+            <th>Dir</th>
+            <th>Side</th>
+            <th>Qty</th>
+            <th>Price</th>
+            <th>Amount</th>
+            <th>CCY</th>
+          </tr>
+        </thead>
+        <tbody id="openBody"></tbody>
+        <tfoot>
+          <tr class="pair-totals">
+            <td colspan="9">Still open total</td>
+            <td id="openTotalsAmount">—</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="tx-section">
+    <h2>Transactions <span id="txCount" class="muted"></span></h2>
+    <div class="table-wrap">
+      <table id="txTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Code</th>
+            <th>Name / Expiry</th>
+            <th>Expiry</th>
+            <th>Side</th>
+            <th>Type</th>
+            <th>Qty</th>
+            <th>Price</th>
+            <th>Amount</th>
+            <th>Fees</th>
+            <th>Net</th>
+            <th>CCY</th>
+          </tr>
+        </thead>
+        <tbody id="txBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="monthly-section">
+    <h2>Monthly summary</h2>
+    <p class="muted pair-hint">
+      From April onward. Closed P&amp;L is option/warrant closed pairs only.
+      HKD base = HKD + USD × statement USD/HKD rate for that month.
+    </p>
+    <div class="table-wrap">
+      <table id="monthlyTable">
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th>Transactions</th>
+            <th>Closed pairs</th>
+            <th>HKD Closed P&amp;L</th>
+            <th>USD Closed P&amp;L</th>
+            <th>Total HKD base</th>
+            <th>Win / Lost</th>
+            <th>Win rate</th>
+          </tr>
+        </thead>
+        <tbody id="monthlyBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="statements-section">
+    <h2>Uploaded statements</h2>
+    <table id="stmtTable">
+      <thead>
+        <tr>
+          <th>Uploaded</th>
+          <th>File</th>
+          <th>Month</th>
+          <th>Trades</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="stmtBody"></tbody>
+    </table>
+  </section>
+
+  <script src="/static/transactions.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Copy this file to config.yaml and fill in your values.
+# OpenD must be running and logged in before this program connects.
+# Login is performed by OpenD (FutuOpenD GUI or command-line), not by this script.
+
+opend:
+  # On the same PC as OpenD: 127.0.0.1
+  # From Docker container on Windows: host.docker.internal
+  host: "127.0.0.1"
+  port: 11111
+
+account:
+  # Your Futubull / moomoo ID (for reference; used when configuring OpenD login)
+  user_id: "YOUR_FUTU_ID"
+  password: "YOUR_LOGIN_PASSWORD"
+
+market_data:
+  # Level 1: use QUOTE only (no order book / tick-by-tick)
+  subscribe_type: "QUOTE"
+  subscribe_push: true
+  is_first_push: true
+
+logging:
+  level: "INFO"

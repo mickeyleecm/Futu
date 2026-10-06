@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HK Option Chain</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="top-bar">
+    <div class="brand">Option Chain <span class="muted">quote only</span></div>
+    <nav class="nav-links">
+      <a href="/" class="active">Option Chain</a>
+      <a href="/transactions">Transactions</a>
+    </nav>
+    <div class="controls">
+      <span id="selectedStock" class="selected-stock muted">Select a stock</span>
+      <label>
+        Refresh (s)
+        <input id="interval" type="number" min="2" max="60" value="5" />
+      </label>
+      <label class="checkbox-label">
+        <input id="autoRefresh" type="checkbox" checked />
+        Auto update
+      </label>
+    </div>
+    <div id="status" class="status">Connecting…</div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-title">Stocks</div>
+      <ul id="stockList" class="stock-list"></ul>
+      <div class="sidebar-title indices-title">Indices</div>
+      <ul id="indexList" class="stock-list"></ul>
+    </aside>
+
+    <div class="main-panel">
+      <section class="summary" id="summary">
+        <div id="underlyingTitle">—</div>
+        <div id="meta" class="meta muted"></div>
+      </section>
+
+      <nav id="expiryTabs" class="expiry-tabs"></nav>
+
+      <main class="table-wrap">
+        <table id="chainTable">
+          <thead>
+            <tr>
+              <th colspan="9" class="call-head">Call</th>
+              <th class="strike-head">Strike</th>
+              <th colspan="10" class="put-head">Put</th>
+            </tr>
+            <tr class="subhead">
+              <th>Delta</th><th>IV</th><th>OI</th><th>Vol</th><th>Chg%</th>
+              <th>Mid</th><th>Ask</th><th>Bid</th><th>Last</th>
+              <th class="strike-col">Strike</th>
+              <th>Bid</th><th>Ask</th><th>Mid</th><th>Last</th><th>Chg%</th>
+              <th>Vol</th><th>OI</th><th>IV</th><th>Delta</th><th>Gamma</th>
+            </tr>
+          </thead>
+          <tbody id="chainBody"></tbody>
+        </table>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

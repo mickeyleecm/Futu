@@ -1,0 +1,24 @@
+# Copy to symbols.yaml and edit the codes you want to monitor.
+# Futu code format: MARKET.CODE  (HK market prefix is HK.)
+
+# Hong Kong listed stocks (5-digit code with leading zeros)
+hk_stocks:
+  - "HK.00005"   # HSBC
+  - "HK.00388"   #         
+  - "HK.00700"   # Tencent
+  - "HK.09888"   # BABA-SW
+  - "HK.03690"   # 
+  - "HK.06181"   # 
+  - "HK.01378"   #   
+  - "HK.00148"   #     
+  - "HK.09992"   #       
+
+
+# Hang Seng Index and related indices
+indices:
+  - "HK.800000"  # Hang Seng Index (HSI)
+
+# HK options: use a live contract code from the Futu app (codes expire each month).
+# Leave empty until you add a valid code, e.g. from 期权 chain on HSI / Tencent.
+hk_options: []
+  # - "HK.HSI260530C24000000"   # example only — replace with your contract

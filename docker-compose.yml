@@ -1,0 +1,82 @@
+# Futu option chain + statement DB
+#
+# OpenD (FutuOpenD) must run on the Windows desktop — NOT in Docker.
+#
+# Quick start:
+#   1. Copy .env.example to .env and set POSTGRES_PASSWORD.
+#   2. Start FutuOpenD and log in (port 11111, Connected).
+#   3. docker compose up -d --build
+#   4. Open http://localhost:8080          (option chain)
+#          http://localhost:8080/transactions  (statement / P&L)
+#
+# Stop:
+#   docker compose down
+
+services:
+  futu-db:
+    image: postgres:16-alpine
+    container_name: futu-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-futu}
+      POSTGRES_USER: ${POSTGRES_USER:-mickylee}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - futu_pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  futu-web:
+    build: .
+    image: futu-option-chain:latest
+    container_name: futu-option-chain
+    depends_on:
+      futu-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      FUTU_OPEND_HOST: host.docker.internal
+      FUTU_OPEND_PORT: "11111"
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "8080"
+      POSTGRES_HOST: futu-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-futu}
+      POSTGRES_USER: ${POSTGRES_USER:-mickylee}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config:/app/config:ro
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+
+  # One-off stock price CLI (optional):
+  #   docker compose run --rm futu-cli 00700
+  futu-cli:
+    build: .
+    image: futu-option-chain:latest
+    profiles: ["cli"]
+    environment:
+      FUTU_OPEND_HOST: host.docker.internal
+      FUTU_OPEND_PORT: "11111"
+      POSTGRES_HOST: futu-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-futu}
+      POSTGRES_USER: ${POSTGRES_USER:-mickylee}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config:/app/config:ro
+    entrypoint: ["python", "scripts/get_stock_price.py"]
+
+volumes:
+  futu_pgdata:
