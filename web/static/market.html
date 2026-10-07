@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Market Data — Futu</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/layout.css" />
+  <link rel="stylesheet" href="/static/market.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <div class="logo">Futu<span>Algo Trading</span></div>
+      <nav class="app-nav">
+        <a href="/account">Account</a>
+        <a href="/market" class="active">Market Data</a>
+        <a href="/news">News</a>
+      </nav>
+    </aside>
+
+    <div class="app-main">
+      <div class="market-page">
+        <div class="market-toolbar">
+          <h1>Market Data</h1>
+          <span id="status" class="muted">Loading…</span>
+          <div class="spacer"></div>
+          <a class="muted" href="/options" style="margin-right:12px;text-decoration:none;">Option Chain</a>
+          <button id="btnRefresh" type="button">Refresh quotes</button>
+        </div>
+
+        <div class="market-split">
+          <div class="market-left">
+            <div class="market-table-wrap">
+              <table class="market-table">
+                <thead>
+                  <tr>
+                    <th>代碼</th>
+                    <th>中文名</th>
+                    <th class="num">最新價</th>
+                    <th class="num">MA50</th>
+                    <th class="num">MA60</th>
+                    <th class="num">Bid</th>
+                    <th class="num">Ask</th>
+                    <th class="num">開市</th>
+                    <th class="num">漲跌</th>
+                    <th class="num">漲跌%</th>
+                    <th class="num">52週高</th>
+                    <th class="num">52週低</th>
+                  </tr>
+                </thead>
+                <tbody id="marketBody"></tbody>
+              </table>
+              <div id="empty" class="market-empty" hidden>No favourite stocks. Sync from Futu watchlist first.</div>
+            </div>
+          </div>
+
+          <aside class="market-options-panel" id="optionsPanel">
+            <div class="options-panel-head">
+              <div class="options-title-row">
+                <h2 id="optionsTitle">Option Price</h2>
+              </div>
+              <div id="optionsMeta" class="muted">Click a stock to load options</div>
+              <nav id="expiryTabs" class="expiry-tabs market-expiry-tabs"></nav>
+            </div>
+            <div class="options-panel-body">
+              <div id="optionsEmpty" class="market-empty">Click a stock code to show option prices (spot ±10).</div>
+              <div class="options-table-wrap" id="optionsTableWrap" hidden>
+                <table class="chain-mini" id="optionsChainTable">
+                  <thead>
+                    <tr>
+                      <th colspan="4" class="call-head">Call</th>
+                      <th class="strike-head">Strike</th>
+                      <th colspan="4" class="put-head">Put</th>
+                    </tr>
+                    <tr class="subhead">
+                      <th>Mid</th>
+                      <th>Ask</th>
+                      <th>Bid</th>
+                      <th>Last</th>
+                      <th class="strike-col">Strike</th>
+                      <th>Bid</th>
+                      <th>Ask</th>
+                      <th>Last</th>
+                      <th>Mid</th>
+                    </tr>
+                  </thead>
+                  <tbody id="optionsBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="/static/market.js"></script>
+</body>
+</html>

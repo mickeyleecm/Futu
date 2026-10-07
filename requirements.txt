@@ -2,6 +2,6 @@ futu-api>=9.2.0
 PyYAML>=6.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
-psycopg2-binary>=2.9.9
+PyMySQL>=1.1.0
 pdfplumber>=0.11.0
 python-multipart>=0.0.9

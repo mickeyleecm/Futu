@@ -10,3 +10,4 @@ venv/
 *.log
 uploads/
 *.pdf
+db/migrate/

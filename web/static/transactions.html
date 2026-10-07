@@ -3,26 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Futu Transactions</title>
+  <title>Account — Futu</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/layout.css" />
   <link rel="stylesheet" href="/static/transactions.css" />
 </head>
 <body>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <div class="logo">Futu<span>Algo Trading</span></div>
+      <nav class="app-nav">
+        <a href="/account" class="active">Account</a>
+        <a href="/market">Market Data</a>
+        <a href="/news">News</a>
+      </nav>
+    </aside>
+    <div class="app-main">
   <header class="top-bar">
     <div class="brand">
-      Transactions <span class="muted">statement · P&amp;L</span>
+      Account <span class="muted">statement · P&amp;L</span>
     </div>
-    <nav class="nav-links">
-      <a href="/">Option Chain</a>
-      <a href="/transactions" class="active">Transactions</a>
-    </nav>
     <div id="status" class="status">Connecting…</div>
   </header>
 
   <section class="tx-panel">
     <div class="upload-box">
       <h2>Upload monthly / daily statement (PDF)</h2>
-      <p class="muted">Futu / Futubull / moomoo PDF. Trades are parsed and saved to PostgreSQL.</p>
+      <p class="muted">Futu / Futubull / moomoo PDF. Trades are parsed and saved to MariaDB.</p>
       <form id="uploadForm">
         <input id="pdfFile" type="file" accept="application/pdf,.pdf" required />
         <button type="submit">Upload &amp; Import</button>
@@ -254,5 +261,7 @@
   </section>
 
   <script src="/static/transactions.js"></script>
+    </div>
+  </div>
 </body>
 </html>

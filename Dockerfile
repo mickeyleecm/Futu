@@ -2,11 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# pdfplumber / pypdf need no system deps; psycopg2-binary is self-contained
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    && rm -rf /var/lib/apt/lists/*
-
+# pdfplumber needs no extra system deps; PyMySQL is pure Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -23,11 +19,11 @@ ENV FUTU_OPEND_HOST=host.docker.internal
 ENV FUTU_OPEND_PORT=11111
 ENV WEB_HOST=0.0.0.0
 ENV WEB_PORT=8080
-ENV POSTGRES_HOST=futu-db
-ENV POSTGRES_PORT=5432
-ENV POSTGRES_DB=futu
-ENV POSTGRES_USER=mickylee
-ENV POSTGRES_PASSWORD=Mn12345678
+ENV MYSQL_HOST=futu-db
+ENV MYSQL_PORT=3306
+ENV MYSQL_DATABASE=futu
+ENV MYSQL_USER=mickylee
+ENV MYSQL_PASSWORD=Mn12345678
 
 EXPOSE 8080
 

@@ -9,19 +9,26 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 import pandas as pd
 import yaml
 from futu import (
+    AuType,
     IndexOptionType,
+    KLType,
     OpenQuoteContext,
     OptionType,
     RET_OK,
     StockQuoteHandlerBase,
     SubType,
 )
+
+# Equity / index numeric codes only (skip options, futures like HSImain).
+_MA_CODE_RE = re.compile(r"^[A-Z]{2}\.\d+$")
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +369,47 @@ class FutuMarketDataClient:
     ) -> tuple[pd.DataFrame, dict[str, str]]:
         """Snapshot prices for specific stock/index codes (no subscription needed)."""
         return self.get_snapshots_safe(codes)
+
+    def get_daily_moving_averages(
+        self,
+        code: str,
+        windows: tuple[int, ...] = (50, 60),
+    ) -> dict[str, float | None]:
+        """
+        Simple moving averages of daily close from OpenD history K-line (QFQ).
+
+        Returns e.g. {"ma50": 454.2, "ma60": 451.3}. Missing windows are None.
+        """
+        self._ensure_connected()
+        assert self._quote_ctx is not None
+        code = str(code).strip().upper()
+        out: dict[str, float | None] = {f"ma{w}": None for w in windows}
+        if not _MA_CODE_RE.match(code):
+            return out
+
+        need = max(windows)
+        # ~1.6 calendar days per trading day + buffer
+        start = (date.today() - timedelta(days=int(need * 1.8) + 30)).isoformat()
+        end = date.today().isoformat()
+        ret, data, _page = self._quote_ctx.request_history_kline(
+            code,
+            start=start,
+            end=end,
+            ktype=KLType.K_DAY,
+            autype=AuType.QFQ,
+            max_count=need + 10,
+        )
+        if ret != RET_OK:
+            logger.warning("History kline failed for %s: %s", code, data)
+            return out
+        if data is None or getattr(data, "empty", True):
+            return out
+
+        closes = pd.to_numeric(data["close"], errors="coerce").dropna().tolist()
+        for w in windows:
+            if len(closes) >= w:
+                out[f"ma{w}"] = float(sum(closes[-w:]) / w)
+        return out
 
     def get_quotes(self, codes: Iterable[str] | None = None):
         """

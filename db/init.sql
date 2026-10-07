@@ -1,71 +1,179 @@
--- Futu trading / market-data schema
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- Futu trading / market-data schema (MariaDB)
+SET NAMES utf8mb4;
+SET time_zone = '+00:00';
 
 CREATE TABLE IF NOT EXISTS statements (
-    id              BIGSERIAL PRIMARY KEY,
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     filename        TEXT NOT NULL,
-    file_sha256     CHAR(64) NOT NULL UNIQUE,
-    statement_month DATE,
-    account_id      TEXT,
-    uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    page_count      INT,
-    raw_text_preview TEXT,
+    file_sha256     CHAR(64) NOT NULL,
+    statement_month DATE NULL,
+    account_id      TEXT NULL,
+    uploaded_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    page_count      INT NULL,
+    raw_text_preview TEXT NULL,
     parse_status    TEXT NOT NULL DEFAULT 'ok',
-    parse_message   TEXT
-);
+    parse_message   TEXT NULL,
+    UNIQUE KEY uq_statements_file_sha256 (file_sha256)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS transactions (
-    id              BIGSERIAL PRIMARY KEY,
-    statement_id    BIGINT REFERENCES statements(id) ON DELETE CASCADE,
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    statement_id    BIGINT NULL,
     trade_date      DATE NOT NULL,
-    settle_date     DATE,
+    settle_date     DATE NULL,
     code            TEXT NOT NULL,
-    name            TEXT,
-    side            TEXT NOT NULL CHECK (side IN ('BUY', 'SELL', 'DIVIDEND', 'FEE', 'DEPOSIT', 'WITHDRAW', 'OTHER')),
-    quantity        NUMERIC(20, 6) DEFAULT 0,
-    price           NUMERIC(20, 8) DEFAULT 0,
-    amount          NUMERIC(20, 6) DEFAULT 0,
-    commission      NUMERIC(20, 6) DEFAULT 0,
-    stamp_duty      NUMERIC(20, 6) DEFAULT 0,
-    trading_fee     NUMERIC(20, 6) DEFAULT 0,
-    settlement_fee  NUMERIC(20, 6) DEFAULT 0,
-    platform_fee    NUMERIC(20, 6) DEFAULT 0,
-    other_fee       NUMERIC(20, 6) DEFAULT 0,
-    total_fee       NUMERIC(20, 6) DEFAULT 0,
-    net_amount      NUMERIC(20, 6) DEFAULT 0,
-    currency        TEXT NOT NULL DEFAULT 'HKD',
-    market          TEXT,
-    product_type    TEXT NOT NULL DEFAULT 'STOCK',
-    remark          TEXT,
-    raw_line        TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+    name            TEXT NULL,
+    side            VARCHAR(16) NOT NULL,
+    quantity        DECIMAL(20, 6) DEFAULT 0,
+    price           DECIMAL(20, 8) DEFAULT 0,
+    amount          DECIMAL(20, 6) DEFAULT 0,
+    commission      DECIMAL(20, 6) DEFAULT 0,
+    stamp_duty      DECIMAL(20, 6) DEFAULT 0,
+    trading_fee     DECIMAL(20, 6) DEFAULT 0,
+    settlement_fee  DECIMAL(20, 6) DEFAULT 0,
+    platform_fee    DECIMAL(20, 6) DEFAULT 0,
+    other_fee       DECIMAL(20, 6) DEFAULT 0,
+    total_fee       DECIMAL(20, 6) DEFAULT 0,
+    net_amount      DECIMAL(20, 6) DEFAULT 0,
+    currency        VARCHAR(8) NOT NULL DEFAULT 'HKD',
+    market          TEXT NULL,
+    product_type    VARCHAR(32) NOT NULL DEFAULT 'STOCK',
+    remark          TEXT NULL,
+    raw_line        TEXT NULL,
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_transactions_statement
+        FOREIGN KEY (statement_id) REFERENCES statements(id) ON DELETE CASCADE,
+    CONSTRAINT chk_transactions_side
+        CHECK (side IN ('BUY', 'SELL', 'DIVIDEND', 'FEE', 'DEPOSIT', 'WITHDRAW', 'OTHER'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_transactions_trade_date ON transactions(trade_date);
-CREATE INDEX IF NOT EXISTS idx_transactions_code ON transactions(code);
-CREATE INDEX IF NOT EXISTS idx_transactions_product_type ON transactions(product_type);
-CREATE INDEX IF NOT EXISTS idx_transactions_statement ON transactions(statement_id);
+CREATE INDEX idx_transactions_trade_date ON transactions(trade_date);
+CREATE INDEX idx_transactions_code ON transactions(code(64));
+CREATE INDEX idx_transactions_product_type ON transactions(product_type);
+CREATE INDEX idx_transactions_statement ON transactions(statement_id);
 
--- For future Futu market data persistence
 CREATE TABLE IF NOT EXISTS market_quotes (
-    id              BIGSERIAL PRIMARY KEY,
-    code            TEXT NOT NULL,
-    name            TEXT,
-    quote_time      TIMESTAMPTZ NOT NULL,
-    last_price      NUMERIC(20, 8),
-    open_price      NUMERIC(20, 8),
-    high_price      NUMERIC(20, 8),
-    low_price       NUMERIC(20, 8),
-    prev_close      NUMERIC(20, 8),
-    change_val      NUMERIC(20, 8),
-    change_pct      NUMERIC(20, 8),
-    volume          NUMERIC(20, 4),
-    turnover        NUMERIC(20, 4),
-    bid_price       NUMERIC(20, 8),
-    ask_price       NUMERIC(20, 8),
-    product_type    TEXT,
-    source          TEXT DEFAULT 'opend',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    code            VARCHAR(64) NOT NULL,
+    name            TEXT NULL,
+    quote_time      DATETIME(6) NOT NULL,
+    last_price      DECIMAL(20, 8) NULL,
+    open_price      DECIMAL(20, 8) NULL,
+    high_price      DECIMAL(20, 8) NULL,
+    low_price       DECIMAL(20, 8) NULL,
+    prev_close      DECIMAL(20, 8) NULL,
+    change_val      DECIMAL(20, 8) NULL,
+    change_pct      DECIMAL(20, 8) NULL,
+    volume          DECIMAL(20, 4) NULL,
+    turnover        DECIMAL(20, 4) NULL,
+    bid_price       DECIMAL(20, 8) NULL,
+    ask_price       DECIMAL(20, 8) NULL,
+    product_type    VARCHAR(32) NULL,
+    source          VARCHAR(32) DEFAULT 'opend',
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_market_quotes_code_time ON market_quotes(code, quote_time DESC);
+CREATE INDEX idx_market_quotes_code_time ON market_quotes(code, quote_time);
+
+-- Current stock/index snapshot + local favourite flag (synced from OpenD / app)
+CREATE TABLE IF NOT EXISTS stock_market_data (
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    code            VARCHAR(64) NOT NULL,
+    name            VARCHAR(255) NULL,
+    name_zh         VARCHAR(255) NULL COMMENT 'Traditional Chinese name',
+    market          VARCHAR(16) NULL COMMENT 'HK / US / CN / ...',
+    product_type    VARCHAR(32) NOT NULL DEFAULT 'STOCK',
+    last_price      DECIMAL(20, 8) NULL,
+    ma50            DECIMAL(20, 8) NULL COMMENT '50-day SMA (daily close, QFQ)',
+    ma60            DECIMAL(20, 8) NULL COMMENT '60-day SMA (daily close, QFQ)',
+    open_price      DECIMAL(20, 8) NULL,
+    high_price      DECIMAL(20, 8) NULL,
+    low_price       DECIMAL(20, 8) NULL,
+    prev_close      DECIMAL(20, 8) NULL,
+    change_val      DECIMAL(20, 8) NULL,
+    change_pct      DECIMAL(20, 8) NULL,
+    volume          DECIMAL(20, 4) NULL,
+    turnover        DECIMAL(20, 4) NULL,
+    bid_price       DECIMAL(20, 8) NULL,
+    ask_price       DECIMAL(20, 8) NULL,
+    avg_price              DECIMAL(20, 8) NULL,
+    amplitude              DECIMAL(20, 8) NULL,
+    volume_ratio           DECIMAL(20, 8) NULL,
+    bid_ask_ratio          DECIMAL(20, 8) NULL,
+    bid_vol                DECIMAL(20, 4) NULL,
+    ask_vol                DECIMAL(20, 4) NULL,
+    pe_ratio               DECIMAL(20, 8) NULL,
+    pe_ttm_ratio           DECIMAL(20, 8) NULL,
+    pb_ratio               DECIMAL(20, 8) NULL,
+    total_market_val       DECIMAL(24, 4) NULL,
+    circular_market_val    DECIMAL(24, 4) NULL,
+    issued_shares          DECIMAL(24, 0) NULL,
+    outstanding_shares     DECIMAL(24, 0) NULL,
+    turnover_rate          DECIMAL(20, 8) NULL,
+    lot_size               INT NULL,
+    highest52weeks_price   DECIMAL(20, 8) NULL,
+    lowest52weeks_price    DECIMAL(20, 8) NULL,
+    highest_history_price  DECIMAL(20, 8) NULL,
+    lowest_history_price   DECIMAL(20, 8) NULL,
+    dividend_ttm           DECIMAL(20, 8) NULL,
+    dividend_ratio_ttm     DECIMAL(20, 8) NULL,
+    dividend_lfy           DECIMAL(20, 8) NULL,
+    dividend_lfy_ratio     DECIMAL(20, 8) NULL,
+    earning_per_share      DECIMAL(20, 8) NULL,
+    net_asset_per_share    DECIMAL(20, 8) NULL,
+    listing_date           DATE NULL,
+    sec_status             VARCHAR(32) NULL,
+    suspension             TINYINT(1) NULL,
+    currency        VARCHAR(8) NULL,
+    quote_time      DATETIME(6) NULL,
+    is_favourite    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = my favourite',
+    remark          VARCHAR(255) NULL,
+    source          VARCHAR(32) NOT NULL DEFAULT 'opend',
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uq_stock_market_data_code (code),
+    KEY idx_stock_market_data_favourite (is_favourite),
+    KEY idx_stock_market_data_market (market)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Option contract snapshots (ATM ± N strikes around underlying last)
+CREATE TABLE IF NOT EXISTS option_market_data (
+    id                   BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    code                 VARCHAR(64) NOT NULL COMMENT 'Option contract code e.g. HK.TCH261029C420000',
+    name                 VARCHAR(255) NULL,
+    underlying           VARCHAR(64) NOT NULL COMMENT 'Owner stock/index e.g. HK.00700',
+    underlying_price     DECIMAL(20, 8) NULL,
+    option_type          VARCHAR(8) NOT NULL COMMENT 'CALL / PUT',
+    strike_price         DECIMAL(20, 8) NOT NULL,
+    expiry               DATE NOT NULL,
+    expiration_cycle     VARCHAR(16) NULL COMMENT 'WEEK / MONTH / ...',
+    strike_offset        INT NULL COMMENT 'Strike steps from ATM: -4..+4',
+    last_price           DECIMAL(20, 8) NULL,
+    bid_price            DECIMAL(20, 8) NULL,
+    ask_price            DECIMAL(20, 8) NULL,
+    mid_price            DECIMAL(20, 8) NULL,
+    prev_close           DECIMAL(20, 8) NULL,
+    change_val           DECIMAL(20, 8) NULL,
+    change_pct           DECIMAL(20, 8) NULL,
+    volume               DECIMAL(20, 4) NULL,
+    turnover             DECIMAL(20, 4) NULL,
+    open_interest        DECIMAL(20, 4) NULL,
+    iv                   DECIMAL(20, 8) NULL COMMENT 'Implied volatility %%',
+    delta                DECIMAL(20, 8) NULL,
+    gamma                DECIMAL(20, 8) NULL,
+    vega                 DECIMAL(20, 8) NULL,
+    theta                DECIMAL(20, 8) NULL,
+    rho                  DECIMAL(20, 8) NULL,
+    premium              DECIMAL(20, 8) NULL,
+    lot_size             INT NULL,
+    contract_size        DECIMAL(20, 4) NULL,
+    expiry_days          INT NULL,
+    suspension           TINYINT(1) NULL,
+    quote_time           DATETIME(6) NULL,
+    source               VARCHAR(32) NOT NULL DEFAULT 'opend',
+    created_at           DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at           DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uq_option_market_data_code (code),
+    KEY idx_option_market_underlying_expiry (underlying, expiry),
+    KEY idx_option_market_expiry (expiry)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

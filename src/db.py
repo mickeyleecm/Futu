@@ -1,4 +1,4 @@
-"""PostgreSQL helpers for statements, transactions, and market quotes."""
+"""MariaDB helpers for statements, transactions, and market quotes."""
 
 from __future__ import annotations
 
@@ -10,19 +10,22 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Iterator, Optional
 
-import psycopg2
-import psycopg2.extras
+import pymysql
+from pymysql.cursors import DictCursor
 
 logger = logging.getLogger(__name__)
 
 
 def db_config() -> dict[str, Any]:
     return {
-        "host": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
-        "port": int(os.environ.get("POSTGRES_PORT", "5432")),
-        "dbname": os.environ.get("POSTGRES_DB", "futu"),
-        "user": os.environ.get("POSTGRES_USER", "mickylee"),
-        "password": os.environ.get("POSTGRES_PASSWORD", "Mn12345678"),
+        "host": os.environ.get("MYSQL_HOST", "127.0.0.1"),
+        "port": int(os.environ.get("MYSQL_PORT", "3306")),
+        "database": os.environ.get("MYSQL_DATABASE", "futu"),
+        "user": os.environ.get("MYSQL_USER", "mickylee"),
+        "password": os.environ.get("MYSQL_PASSWORD", "Mn12345678"),
+        "charset": "utf8mb4",
+        "autocommit": False,
+        "cursorclass": DictCursor,
     }
 
 
@@ -40,7 +43,7 @@ def is_db_available() -> bool:
 
 @contextmanager
 def get_conn() -> Iterator[Any]:
-    conn = psycopg2.connect(**db_config())
+    conn = pymysql.connect(**db_config())
     try:
         yield conn
         conn.commit()
@@ -74,16 +77,16 @@ def insert_statement(
                     filename, file_sha256, statement_month, account_id,
                     page_count, raw_text_preview, parse_status, parse_message
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (file_sha256) DO UPDATE SET
-                    uploaded_at = NOW(),
-                    filename = EXCLUDED.filename,
-                    statement_month = EXCLUDED.statement_month,
-                    account_id = EXCLUDED.account_id,
-                    page_count = EXCLUDED.page_count,
-                    raw_text_preview = EXCLUDED.raw_text_preview,
-                    parse_status = EXCLUDED.parse_status,
-                    parse_message = EXCLUDED.parse_message
-                RETURNING id
+                ON DUPLICATE KEY UPDATE
+                    id = LAST_INSERT_ID(id),
+                    uploaded_at = CURRENT_TIMESTAMP(6),
+                    filename = VALUES(filename),
+                    statement_month = VALUES(statement_month),
+                    account_id = VALUES(account_id),
+                    page_count = VALUES(page_count),
+                    raw_text_preview = VALUES(raw_text_preview),
+                    parse_status = VALUES(parse_status),
+                    parse_message = VALUES(parse_message)
                 """,
                 (
                     filename,
@@ -96,7 +99,7 @@ def insert_statement(
                     parse_message,
                 ),
             )
-            return int(cur.fetchone()[0])
+            return int(cur.lastrowid)
 
 
 def delete_transactions_for_statement(statement_id: int) -> None:
@@ -110,25 +113,23 @@ def delete_transactions_for_statement(statement_id: int) -> None:
 def insert_transactions(statement_id: int, rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
+    sql = """
+        INSERT INTO transactions (
+            statement_id, trade_date, settle_date, code, name, side,
+            quantity, price, amount, commission, stamp_duty, trading_fee,
+            settlement_fee, platform_fee, other_fee, total_fee, net_amount,
+            currency, market, product_type, remark, raw_line
+        ) VALUES (
+            %(statement_id)s, %(trade_date)s, %(settle_date)s, %(code)s, %(name)s, %(side)s,
+            %(quantity)s, %(price)s, %(amount)s, %(commission)s, %(stamp_duty)s, %(trading_fee)s,
+            %(settlement_fee)s, %(platform_fee)s, %(other_fee)s, %(total_fee)s, %(net_amount)s,
+            %(currency)s, %(market)s, %(product_type)s, %(remark)s, %(raw_line)s
+        )
+    """
+    payload = [{**r, "statement_id": statement_id} for r in rows]
     with get_conn() as conn:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(
-                cur,
-                """
-                INSERT INTO transactions (
-                    statement_id, trade_date, settle_date, code, name, side,
-                    quantity, price, amount, commission, stamp_duty, trading_fee,
-                    settlement_fee, platform_fee, other_fee, total_fee, net_amount,
-                    currency, market, product_type, remark, raw_line
-                ) VALUES (
-                    %(statement_id)s, %(trade_date)s, %(settle_date)s, %(code)s, %(name)s, %(side)s,
-                    %(quantity)s, %(price)s, %(amount)s, %(commission)s, %(stamp_duty)s, %(trading_fee)s,
-                    %(settlement_fee)s, %(platform_fee)s, %(other_fee)s, %(total_fee)s, %(net_amount)s,
-                    %(currency)s, %(market)s, %(product_type)s, %(remark)s, %(raw_line)s
-                )
-                """,
-                [{**r, "statement_id": statement_id} for r in rows],
-            )
+            cur.executemany(sql, payload)
             return len(rows)
 
 
@@ -152,7 +153,7 @@ def list_transactions(
         clauses.append("product_type = %s")
         params.append(product_type)
     if code:
-        clauses.append("code ILIKE %s")
+        clauses.append("code LIKE %s")
         params.append(f"%{code}%")
     params.append(limit)
     sql = f"""
@@ -166,7 +167,7 @@ def list_transactions(
         LIMIT %s
     """
     with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor() as cur:
             cur.execute(sql, params)
             return [_serialize_row(r) for r in cur.fetchall()]
 
@@ -180,7 +181,7 @@ def list_option_warrant_trades(
     clauses = ["product_type IN ('OPTION', 'WARRANT')", "side IN ('BUY', 'SELL')"]
     params: list[Any] = []
     if code:
-        clauses.append("code ILIKE %s")
+        clauses.append("code LIKE %s")
         params.append(f"%{code}%")
     params.append(limit)
     sql = f"""
@@ -193,7 +194,7 @@ def list_option_warrant_trades(
         LIMIT %s
     """
     with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor() as cur:
             cur.execute(sql, params)
             return [_serialize_row(r) for r in cur.fetchall()]
 
@@ -237,14 +238,14 @@ def pnl_by_product(
         ORDER BY product_type, currency
     """
     with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor() as cur:
             cur.execute(sql, params)
             return [_serialize_row(r) for r in cur.fetchall()]
 
 
 def list_statements(limit: int = 50) -> list[dict[str, Any]]:
     with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT s.*,
@@ -273,7 +274,9 @@ def get_usd_hkd_rate(
     clauses = ["raw_text_preview IS NOT NULL"]
     params: list[Any] = []
     if date_from:
-        clauses.append("(statement_month IS NULL OR statement_month >= date_trunc('month', %s::date))")
+        clauses.append(
+            "(statement_month IS NULL OR statement_month >= DATE_FORMAT(%s, '%%Y-%%m-01'))"
+        )
         params.append(date_from)
     if date_to:
         clauses.append("(statement_month IS NULL OR statement_month <= %s)")
@@ -282,7 +285,7 @@ def get_usd_hkd_rate(
         SELECT raw_text_preview
         FROM statements
         WHERE {' AND '.join(clauses)}
-        ORDER BY statement_month DESC NULLS LAST, uploaded_at DESC
+        ORDER BY statement_month IS NULL, statement_month DESC, uploaded_at DESC
         LIMIT 5
     """
     with get_conn() as conn:
@@ -294,12 +297,13 @@ def get_usd_hkd_rate(
                     """
                     SELECT raw_text_preview FROM statements
                     WHERE raw_text_preview IS NOT NULL
-                    ORDER BY statement_month DESC NULLS LAST, uploaded_at DESC
+                    ORDER BY statement_month IS NULL, statement_month DESC, uploaded_at DESC
                     LIMIT 5
                     """
                 )
                 rows = cur.fetchall()
-    for (preview,) in rows:
+    for row in rows:
+        preview = row["raw_text_preview"] if isinstance(row, dict) else row[0]
         rates = extract_fx_rates(preview or "")
         if "USDHKD" in rates:
             return float(rates["USDHKD"])
@@ -308,8 +312,9 @@ def get_usd_hkd_rate(
 
 def transaction_counts_by_month() -> dict[str, int]:
     """Map 'YYYY-MM-01' → transaction count for that calendar month."""
+    # No query params here — use single % for DATE_FORMAT (do not escape as %%).
     sql = """
-        SELECT date_trunc('month', trade_date)::date AS month, COUNT(*)::int AS cnt
+        SELECT DATE_FORMAT(trade_date, '%Y-%m-01') AS month, COUNT(*) AS cnt
         FROM transactions
         GROUP BY 1
         ORDER BY 1
@@ -317,7 +322,16 @@ def transaction_counts_by_month() -> dict[str, int]:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(sql)
-            return {r[0].isoformat(): int(r[1]) for r in cur.fetchall() if r[0]}
+            out: dict[str, int] = {}
+            for r in cur.fetchall():
+                month = r["month"]
+                if not month:
+                    continue
+                if hasattr(month, "isoformat"):
+                    out[month.isoformat()] = int(r["cnt"])
+                else:
+                    out[str(month)] = int(r["cnt"])
+            return out
 
 
 def monthly_pair_summaries(
@@ -405,6 +419,225 @@ def insert_market_quote(row: dict[str, Any]) -> None:
                 """,
                 row,
             )
+
+
+_STOCK_SNAPSHOT_COLS = (
+    "code",
+    "name",
+    "name_zh",
+    "market",
+    "product_type",
+    "last_price",
+    "ma50",
+    "ma60",
+    "open_price",
+    "high_price",
+    "low_price",
+    "prev_close",
+    "change_val",
+    "change_pct",
+    "volume",
+    "turnover",
+    "bid_price",
+    "ask_price",
+    "avg_price",
+    "amplitude",
+    "volume_ratio",
+    "bid_ask_ratio",
+    "bid_vol",
+    "ask_vol",
+    "pe_ratio",
+    "pe_ttm_ratio",
+    "pb_ratio",
+    "total_market_val",
+    "circular_market_val",
+    "issued_shares",
+    "outstanding_shares",
+    "turnover_rate",
+    "lot_size",
+    "highest52weeks_price",
+    "lowest52weeks_price",
+    "highest_history_price",
+    "lowest_history_price",
+    "dividend_ttm",
+    "dividend_ratio_ttm",
+    "dividend_lfy",
+    "dividend_lfy_ratio",
+    "earning_per_share",
+    "net_asset_per_share",
+    "listing_date",
+    "sec_status",
+    "suspension",
+    "currency",
+    "quote_time",
+    "is_favourite",
+    "remark",
+    "source",
+)
+
+
+def upsert_stock_market_data(row: dict[str, Any]) -> None:
+    """Insert or update one symbol in stock_market_data (keeps is_favourite unless provided)."""
+    payload = {c: row.get(c) for c in _STOCK_SNAPSHOT_COLS}
+    payload["code"] = row["code"]
+    payload["product_type"] = row.get("product_type") or "STOCK"
+    payload["is_favourite"] = row.get("is_favourite", 0)
+    payload["source"] = row.get("source") or "opend"
+
+    cols = ", ".join(_STOCK_SNAPSHOT_COLS)
+    placeholders = ", ".join(f"%({c})s" for c in _STOCK_SNAPSHOT_COLS)
+    updates = []
+    for c in _STOCK_SNAPSHOT_COLS:
+        if c == "code":
+            continue
+        if c == "is_favourite":
+            updates.append(
+                "is_favourite = IF(VALUES(is_favourite) IS NULL, is_favourite, VALUES(is_favourite))"
+            )
+        else:
+            # Partial updates (e.g. MA-only) must not NULL out existing quote fields
+            updates.append(f"{c} = COALESCE(VALUES({c}), {c})")
+
+    sql = f"""
+        INSERT INTO stock_market_data ({cols})
+        VALUES ({placeholders})
+        ON DUPLICATE KEY UPDATE {', '.join(updates)}
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, payload)
+
+
+def set_stock_favourite(code: str, is_favourite: bool = True) -> None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO stock_market_data (code, is_favourite)
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE is_favourite = VALUES(is_favourite)
+                """,
+                (code, 1 if is_favourite else 0),
+            )
+
+
+def list_stock_market_data(
+    *,
+    favourites_only: bool = False,
+    market: Optional[str] = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    clauses = ["1=1"]
+    params: list[Any] = []
+    if favourites_only:
+        clauses.append("is_favourite = 1")
+    if market:
+        clauses.append("market = %s")
+        params.append(market)
+    params.append(limit)
+    sql = f"""
+        SELECT *
+        FROM stock_market_data
+        WHERE {' AND '.join(clauses)}
+        ORDER BY is_favourite DESC, code ASC
+        LIMIT %s
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [_serialize_row(r) for r in cur.fetchall()]
+
+
+_OPTION_MARKET_COLS = (
+    "code",
+    "name",
+    "underlying",
+    "underlying_price",
+    "option_type",
+    "strike_price",
+    "expiry",
+    "expiration_cycle",
+    "strike_offset",
+    "last_price",
+    "bid_price",
+    "ask_price",
+    "mid_price",
+    "prev_close",
+    "change_val",
+    "change_pct",
+    "volume",
+    "turnover",
+    "open_interest",
+    "iv",
+    "delta",
+    "gamma",
+    "vega",
+    "theta",
+    "rho",
+    "premium",
+    "lot_size",
+    "contract_size",
+    "expiry_days",
+    "suspension",
+    "quote_time",
+    "source",
+)
+
+
+def upsert_option_market_data(row: dict[str, Any]) -> None:
+    """Insert or update one option contract in option_market_data."""
+    payload = {c: row.get(c) for c in _OPTION_MARKET_COLS}
+    payload["code"] = row["code"]
+    payload["underlying"] = row["underlying"]
+    payload["option_type"] = row["option_type"]
+    payload["strike_price"] = row["strike_price"]
+    payload["expiry"] = row["expiry"]
+    payload["source"] = row.get("source") or "opend"
+
+    cols = ", ".join(_OPTION_MARKET_COLS)
+    placeholders = ", ".join(f"%({c})s" for c in _OPTION_MARKET_COLS)
+    updates = []
+    for c in _OPTION_MARKET_COLS:
+        if c == "code":
+            continue
+        updates.append(f"{c} = COALESCE(VALUES({c}), {c})")
+
+    sql = f"""
+        INSERT INTO option_market_data ({cols})
+        VALUES ({placeholders})
+        ON DUPLICATE KEY UPDATE {', '.join(updates)}
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, payload)
+
+
+def list_option_market_data(
+    *,
+    underlying: Optional[str] = None,
+    expiry: Optional[str] = None,
+    limit: int = 2000,
+) -> list[dict[str, Any]]:
+    clauses = ["1=1"]
+    params: list[Any] = []
+    if underlying:
+        clauses.append("underlying = %s")
+        params.append(underlying)
+    if expiry:
+        clauses.append("expiry = %s")
+        params.append(expiry)
+    params.append(limit)
+    sql = f"""
+        SELECT *
+        FROM option_market_data
+        WHERE {' AND '.join(clauses)}
+        ORDER BY underlying ASC, expiry ASC, strike_price ASC, option_type ASC
+        LIMIT %s
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [_serialize_row(r) for r in cur.fetchall()]
 
 
 def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:

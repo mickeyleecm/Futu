@@ -25,16 +25,21 @@ from src.db import (
     insert_statement,
     insert_transactions,
     is_db_available,
+    list_option_market_data,
     list_option_warrant_trades,
     list_statements,
+    list_stock_market_data,
     list_transactions,
     monthly_pair_summaries,
     pnl_by_product,
+    upsert_stock_market_data,
 )
 from src.futu_market_data import FutuMarketDataClient
 from src.option_chain_board import build_option_chain_board, list_expirations
+from src.option_market_sync import is_option_underlying_code, sync_favourite_options
 from src.pair_pnl import pair_option_warrant_trades
 from src.product_info import enrich_product_fields
+from src.snapshot_map import snapshot_row_to_stock_data
 from src.statement_parser import parse_statement_bytes
 
 logger = logging.getLogger(__name__)
@@ -98,12 +103,139 @@ def _db_or_raise() -> None:
 
 @app.get("/")
 async def index():
+    return FileResponse(STATIC / "market.html")
+
+
+@app.get("/market")
+async def market_page():
+    return FileResponse(STATIC / "market.html")
+
+
+@app.get("/account")
+@app.get("/transactions")
+async def account_page():
+    return FileResponse(STATIC / "transactions.html")
+
+
+@app.get("/news")
+async def news_page():
+    return FileResponse(STATIC / "news.html")
+
+
+@app.get("/options")
+async def options_page():
     return FileResponse(STATIC / "index.html")
 
 
-@app.get("/transactions")
-async def transactions_page():
-    return FileResponse(STATIC / "transactions.html")
+def _refresh_favourite_quotes() -> dict:
+    """One-shot OpenD snapshot into stock_market_data for favourites."""
+    favs = list_stock_market_data(favourites_only=True, limit=500)
+    codes = [r["code"] for r in favs if r.get("code")]
+    if not codes:
+        return {"ok_count": 0, "fail_count": 0, "errors": []}
+
+    client = _ensure_quote_client()
+    ok_count = 0
+    fail_count = 0
+    errors: list[str] = []
+    batch_size = 40
+
+    def _persist_frame(data) -> int:
+        n = 0
+        for _, row in data.iterrows():
+            payload = snapshot_row_to_stock_data(row, is_favourite=1)
+            if not payload.get("code"):
+                continue
+            # Keep existing product_type if snapshot has none
+            upsert_stock_market_data(payload)
+            n += 1
+        return n
+
+    for i in range(0, len(codes), batch_size):
+        batch = codes[i : i + batch_size]
+        try:
+            ret, data = client.get_snapshots(batch)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(str(exc))
+            fail_count += len(batch)
+            continue
+        if ret != 0:
+            for code in batch:
+                try:
+                    r2, d2 = client.get_snapshots([code])
+                except Exception as exc:  # noqa: BLE001
+                    fail_count += 1
+                    errors.append(f"{code}: {exc}")
+                    continue
+                if r2 != 0:
+                    fail_count += 1
+                    errors.append(f"{code}: {d2}")
+                    continue
+                ok_count += _persist_frame(d2)
+            continue
+        ok_count += _persist_frame(data)
+
+    # Daily SMA from history K-line (quota-limited; skip options/futures)
+    ma_ok = 0
+    for code in codes:
+        try:
+            mas = client.get_daily_moving_averages(code, windows=(50, 60))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{code} MA: {exc}")
+            continue
+        if mas.get("ma50") is None and mas.get("ma60") is None:
+            continue
+        upsert_stock_market_data(
+            {
+                "code": code,
+                "ma50": mas.get("ma50"),
+                "ma60": mas.get("ma60"),
+                "is_favourite": 1,
+                "source": "opend",
+            }
+        )
+        ma_ok += 1
+
+    return {
+        "ok_count": ok_count,
+        "fail_count": fail_count,
+        "ma_ok": ma_ok,
+        "errors": errors[:10],
+    }
+
+
+@app.get("/api/market/favourites")
+async def market_favourites(
+    refresh: int = Query(0, description="1 = pull latest quotes from OpenD first"),
+):
+    _db_or_raise()
+    refreshed = False
+    meta: dict = {}
+    if refresh:
+        try:
+            meta = _refresh_favourite_quotes()
+            refreshed = True
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(503, f"Quote refresh failed: {exc}") from exc
+
+    rows = list_stock_market_data(favourites_only=True, limit=500)
+    # Prefer STOCK-like list order: stocks first, then others
+    def _sort_key(r: dict) -> tuple:
+        code = str(r.get("code") or "")
+        return (0 if code.startswith("HK.") else 1, code)
+
+    rows = sorted(rows, key=_sort_key)
+    return {
+        "ok": True,
+        "refreshed": refreshed,
+        "ok_count": meta.get("ok_count"),
+        "fail_count": meta.get("fail_count"),
+        "ma_ok": meta.get("ma_ok"),
+        "errors": meta.get("errors"),
+        "rows": rows,
+    }
 
 
 @app.get("/api/health")
@@ -155,6 +287,50 @@ async def symbols():
         "ok": True,
         "hk_stocks": _items(hk_stocks),
         "indices": _items(indices),
+    }
+
+
+@app.get("/api/market/options")
+async def market_options(
+    underlying: str | None = Query(None, description="Filter e.g. HK.00700"),
+    expiry: str | None = Query(None, description="yyyy-MM-dd"),
+    refresh: int = Query(
+        0,
+        description="1 = pull ATM±4 option quotes for favourite stocks once",
+    ),
+    spread: int = Query(4, ge=1, le=10, description="Strike steps each side of ATM"),
+):
+    """List stored option market data; optional one-shot OpenD refresh (ATM ± spread)."""
+    _db_or_raise()
+    meta: dict = {}
+    refreshed = False
+    if refresh:
+        favs = list_stock_market_data(favourites_only=True, limit=500)
+        codes = [
+            r["code"]
+            for r in favs
+            if r.get("code") and is_option_underlying_code(str(r["code"]))
+        ]
+        # Skip pure index tickers that usually have no single-stock options
+        # (keep HSI index option underlyings if user wants later).
+        try:
+            client = _ensure_quote_client()
+            meta = sync_favourite_options(client, codes, spread=spread, prefer_month=True)
+            refreshed = True
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(503, f"Option refresh failed: {exc}") from exc
+
+    rows = list_option_market_data(underlying=underlying, expiry=expiry, limit=5000)
+    return {
+        "ok": True,
+        "refreshed": refreshed,
+        "ok_underlyings": meta.get("ok_underlyings"),
+        "fail_underlyings": meta.get("fail_underlyings"),
+        "upserted": meta.get("upserted"),
+        "errors": meta.get("errors"),
+        "rows": rows,
     }
 
 

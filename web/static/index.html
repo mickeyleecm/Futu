@@ -3,15 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HK Option Chain</title>
+  <title>Option Chain — Futu</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/layout.css" />
 </head>
 <body>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <div class="logo">Futu<span>Algo Trading</span></div>
+      <nav class="app-nav">
+        <a href="/account">Account</a>
+        <a href="/market">Market Data</a>
+        <a href="/news">News</a>
+      </nav>
+    </aside>
+    <div class="app-main">
   <header class="top-bar">
     <div class="brand">Option Chain <span class="muted">quote only</span></div>
     <nav class="nav-links">
-      <a href="/" class="active">Option Chain</a>
-      <a href="/transactions">Transactions</a>
+      <a href="/options" class="active">Option Chain</a>
+      <a href="/market">Market Data</a>
     </nav>
     <div class="controls">
       <span id="selectedStock" class="selected-stock muted">Select a stock</span>
@@ -66,5 +77,7 @@
   </div>
 
   <script src="/static/app.js"></script>
+    </div>
+  </div>
 </body>
 </html>
